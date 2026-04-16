@@ -1,14 +1,12 @@
 # HelloWorld
-Systems hardware status interface.
 
-## Services
+Hardware metrics API for Raspberry Pi.
 
-- `metrics-api` (Python): reads host hardware metrics from mounted `/proc` and `/sys` and exposes:
-  - `GET /health`
-  - `GET /metrics`
-- `express-server` (Node/Express): proxies metrics to:
-  - `GET /health`
-  - `GET /api/hardware-status`
+## Service
+
+- `metrics-api` (Node.js 20): reads host hardware metrics from mounted `/proc` and `/sys` and exposes:
+  - `GET /health` → `{"status": "ok"}`
+  - `GET /metrics` → JSON metrics object
 
 ## Run with Docker
 
@@ -16,19 +14,34 @@ Systems hardware status interface.
 docker compose up --build
 ```
 
-Then open:
+Then test endpoints:
 
-- `http://localhost:3000/health`
-- `http://localhost:3000/api/hardware-status`
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/metrics
+```
 
-## Secure host metric access
+## Run Locally
 
-- The Python container mounts host paths read-only:
-  - `/proc:/host/proc:ro`
-  - `/sys:/host/sys:ro`
-- Both containers are hardened with:
-  - non-root users
-  - `read_only: true`
-  - `cap_drop: [ALL]`
-  - `no-new-privileges:true`
-  - `pids_limit`
+```bash
+npm install
+npm start
+```
+
+## Tests
+
+```bash
+npm test
+```
+
+## Security
+
+- Container runs as non-root user (`appuser`)
+- `read_only: true` filesystem
+- All capabilities dropped (`cap_drop: [ALL]`)
+- Host `/proc` and `/sys` mounted read-only
+- Environment variables for path configuration:
+  - `PROC_ROOT` (default: `/proc`)
+  - `SYS_ROOT` (default: `/sys`)
+  - `API_HOST` (default: `0.0.0.0`)
+  - `API_PORT` (default: `8000`)

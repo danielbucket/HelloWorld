@@ -1,7 +1,7 @@
 services:
   metrics-api:
     build:
-      context: ./metrics-api
+      context: .
     container_name: metrics-api
     read_only: true
     security_opt:
@@ -12,29 +12,5 @@ services:
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
-    networks:
-      - backend
-
-  express-server:
-    build:
-      context: ./express-server
-    container_name: express-server
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    pids_limit: 100
-    environment:
-      - PORT=3000
-      - METRICS_API_URL=http://metrics-api:8000/metrics
-    depends_on:
-      - metrics-api
     ports:
-      - "3000:3000"
-    networks:
-      - backend
-
-networks:
-  backend:
-    driver: bridge
+      - "8000:8000"

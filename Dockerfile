@@ -1,7 +1,9 @@
-FROM python:3.12-slim
+FROM node:20-alpine
 
 WORKDIR /app
-COPY app.py /app/app.py
+COPY package.json /app/package.json
+RUN npm install --omit=dev
+COPY app.js /app/app.js
 
 RUN useradd --system --create-home appuser
 USER appuser
@@ -13,4 +15,4 @@ ENV API_HOST=0.0.0.0 \
 
 EXPOSE 8000
 
-CMD ["python", "/app/app.py"]
+CMD ["node", "app.js"]
