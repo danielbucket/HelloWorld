@@ -2,15 +2,35 @@
 
 ## Architecture Overview
 
-**HelloWorld** is a lightweight hardware metrics API built in Node.js 20:
+**HelloWorld** is a secured hardware metrics API built with Express.js on Node.js 20:
 
+- **Express.js application** (`src/app/`) with modular architecture
 - Reads host `/proc` and `/sys` filesystems mounted read-only
-- Exposes two endpoints:
-  - `GET /health` → `{"status": "ok"}`
+- **Two main endpoints:**
+  - `GET /metrics/health` → `{"status": "ok"}`
   - `GET /metrics` → JSON with `{timestamp_epoch, memory, load_average, uptime_seconds, cpu_temperature_celsius}`
+- **Security layers:**
+  - JWT token authentication (`authMiddleware.verifyToken`)
+  - Token issuance with origin validation (`authMiddleware.issueToken`)
+  - Rate limiting (100 requests per 15 minutes)
 - Runs in hardened Docker container as non-root user with all capabilities dropped
-- ES modules (import/export syntax)
-- No external dependencies; uses Node.js built-in `http`, `fs`, `path` modules
+- CommonJS and ES modules mixed (see patterns below)
+
+## Directory Structure
+
+```
+src/app/
+  ├── app.js                 # Express app setup, middleware, routing
+  ├── router.js              # Metrics routes (health, system_metrics)
+  ├── controllers/
+  │   ├── index.js           # Exports all controllers
+  │   └── GET/system_metrics.js  # GET /metrics handler
+  ├── middleware/
+  │   └── authMiddleware.js  # JWT verification and token issuance
+  └── optimization/
+      └── rateLimiter.js     # Express rate limiter configuration
+server.js                    # Entry point, handles startup logic
+```
 
 ## Development Workflow
 
@@ -21,6 +41,12 @@ npm start
 ```
 Listens on `http://localhost:8000`
 
+**Run in development with auto-reload:**
+```bash
+npm run dev
+```
+Uses nodemon to watch for changes.
+
 **Run in Docker:**
 ```bash
 docker compose up --build
@@ -30,49 +56,65 @@ docker compose up --build
 ```bash
 npm test
 ```
-Uses Node.js built-in test runner; tests import `requestHandler` function and mock HTTP requests.
+Uses Node.js built-in test runner. Tests import Express app and make HTTP requests.
 
 ## Code Patterns & Conventions
 
-**app.js structure:**
-- `readText(filePath)`: Reads file with UTF-8 encoding, throws `MetricsError` on failure
-- Helper functions for each metric: `memoryInfo()`, `loadAverage()`, `uptimeSeconds()`, `cpuTemperatureCelsius()`
-- `getMetrics()`: Aggregates all helpers into single object; called by request handler
-- `requestHandler(req, res)`: Core HTTP handler, checks method, routes by URL, catches errors
-- `respondJson(res, status, payload)`: Sends JSON with proper headers and Content-Length
-- `start()`: Creates and starts HTTP server; logs startup message
-- `import.meta.url` check enables module to be imported without side effects
+### Entry Point (server.js)
+- Imports Express app from `src/app/app.js`
+- Handles environment configuration: `API_PORT`, `API_HOST`, `PROC_ROOT`, `SYS_ROOT`
+- Uses `import.meta.url` check to prevent auto-startup when imported as module
+- Graceful shutdown: listens for `SIGTERM` signal and closes server cleanly
 
-### Metrics Parsing Details
+### Express Application (src/app/app.js)
+- **Order matters:** Rate limiter → JSON middleware → routes → catch-all 404
+- Rate limiting applied globally before routes
+- Authentication middleware applied per-route (only on `/metrics` endpoints)
+- Catch-all handler at end: `app.all('*', ...)` for undefined routes
 
-- **`memoryInfo()`**: Reads `/proc/meminfo`, parses key-value pairs (colon-separated), extracts `MemTotal` and `MemAvailable` integers, calculates `used_kib = max(total - available, 0)`. Returns object with `total_kib`, `available_kib`, `used_kib`.
-- **`loadAverage()`**: Reads `/proc/loadavg`, splits on whitespace, extracts first 3 as floats for 1m/5m/15m. Returns object with keys `'1m'`, `'5m'`, `'15m'`.
-- **`uptimeSeconds()`**: Reads `/proc/uptime`, splits on whitespace, returns first value as float.
-- **`cpuTemperatureCelsius()`**: Reads `/sys/class/thermal/thermal_zone0/temp`. Returns `null` if file doesn't exist (not all boards have thermal sensors). Otherwise parses as integer (millidegrees), divides by 1000, rounds to 2 decimals.
+### Middleware (src/app/middleware/authMiddleware.js)
+- **Token verification:**
+  - Checks for `Authorization: Bearer <token>` header
+  - Validates JWT signature using `jwtSecret` from config
+  - Checks token expiration (`decoded.exp * 1000 < Date.now()`)
+  - Validates `read:metrics` permission in token
+- **Token issuance:**
+  - Validates request `origin` header matches `originURL` config
+  - Requires `permissions` in request body
+  - Issues 30-day JWT tokens
+- Error responses: `401 {error: 'missing_token'|'invalid_token'|'token_expired'}`, `403 {error: 'insufficient_permissions'|'invalid_origin'}`
 
-### HTTP Handler (`requestHandler`)
-- `GET /health` → `200 {"status": "ok"}`
-- `GET /metrics` → `200 {timestamp_epoch, memory, load_average, uptime_seconds, cpu_temperature_celsius}` or `500` on metrics error
-- `GET /*` → `404 {"error": "not_found"}`
-- Non-GET methods → `405 {"error": "method_not_allowed"}`
-- All responses: `Content-Type: application/json` and correct `Content-Length`
-- Metrics errors caught and returned with error details
+### Rate Limiting (src/app/optimization/rateLimiter.js)
+- 15-minute window, 100 requests per IP
+- Returns `429` Too Many Requests if limit exceeded
+- Sends standard `RateLimit-*` headers (not legacy `x-RateLimit-*`)
 
-**Environment Configuration:**
-- `PROC_ROOT` (default `/proc`): Path to /proc filesystem (useful for testing)
-- `SYS_ROOT` (default `/sys`): Path to /sys filesystem
-- `API_HOST` (default `0.0.0.0`): Server bind address
-- `API_PORT` (default `8000`): Server port
-- Passed to container via Dockerfile or docker-compose
+### Controllers (src/app/controllers/)
+- Folder structure: `GET/`, `POST/` (etc.) containing handlers
+- Each handler receives `(req, res)` and handles its own responses
+- Exported from `index.js` for clean imports: `const { GET } = require('./controllers')`
 
-**docker-compose.yml:**
-- Single service; read-only filesystem, dropped capabilities, pids limit
-- Mounts: `/proc:/host/proc:ro`, `/sys:/host/sys:ro`
-- Port 8000 exposed
+### Routing (src/app/router.js)
+- Uses Express Router for `/metrics` namespace
+- `/metrics/health` → Health check (no auth required)
+- `/metrics` → System metrics (auth required)
+- Auth middleware applied at app level for `/metrics` routes
+
+## Key Integration Points
+
+- **Authentication:** All `/metrics` requests require valid JWT with `read:metrics` permission
+- **Token workflow:**
+  1. Client calls `POST /auth` with `origin` header and `{permissions}` body
+  2. Server validates origin, issues JWT
+  3. Client includes `Authorization: Bearer <token>` on subsequent requests
+  4. Server validates token before returning metrics
+- **Rate limiting:** Applied before authentication; limits by IP address
+- **Error propagation:** Controllers should catch metric collection errors and respond with `500 {error: 'error_code', details: '...'}`
 
 ## When Making Changes
 
-- **Adding metrics**: Create new helper function parsing `/proc` or `/sys`, add to `getMetrics()` object, add test
-- **Adding routes**: Add new URL check in `requestHandler`, use `respondJson()` for responses
-- **Changing error responses**: Update relevant error objects; maintain `{error: 'error_code', details?: string}` shape
-- **Testing**: Export functions needed for tests; tests import `requestHandler` and mock HTTP with dynamic ports
+- **Adding metrics:** Update `/metrics` handler in `controllers/GET/system_metrics.js`; add test case
+- **Adding routes:** Add to `router.js`, create controller in appropriate `controllers/` folder, apply auth middleware if needed
+- **Changing authentication:** Update `middleware/authMiddleware.js`, ensure token structure matches (must include `permissions` array)
+- **Security updates:** Keep JWT secret in config, never commit to git; update Node/Express base images in Dockerfile
+- **Module imports:** Be consistent with CommonJS (`require`/`module.exports`) vs ES modules (`import`/`export`) within files

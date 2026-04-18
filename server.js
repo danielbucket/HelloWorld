@@ -1,11 +1,9 @@
-import app from './app.js';
-import { process } from 'process';
+import app from './src/app.js';
+import { apiPort } from './src/utils/config.js';
+const port = parseInt(apiPort, 10);
 
-const API_PORT = parseInt(process.env.API_PORT || '8000', 10);
-const API_HOST = process.env.API_HOST || '0.0.0.0';
-
-const server = () => app.listen(API_PORT, API_HOST, () => {
-  console.log(`metrics api listening on ${API_HOST}:${API_PORT}`);
+const server = () => app.listen(port, () => {
+  console.log(`Metrics API listening on port ${port}`);
 });
 
 // process.argv[1] is the path to the script being executed, so this condition checks if server.js is being run directly rather than imported as a module

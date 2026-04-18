@@ -4,16 +4,21 @@
   "private": true,
   "description": "Hardware metrics API for Raspberry Pi",
   "main": "server.js",
+  "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node server.js --",
+    "dev": "DEV_MODE=true nodemon server.js",
     "test": "node --test"
   },
   "engines": {
     "node": ">=20"
   },
-  "devDependencies": {
-    "nodemon": "^3.1.10"
+  "dependencies": {
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.2",
+    "jsonwebtoken": "^9.0.3"
   },
-  "dependencies": {}
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
 }

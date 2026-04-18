@@ -13,7 +13,7 @@ class MetricsError extends Error {
 
 function readText(filePath) {
   try {
-    return require('fs').readFileSync(filePath, 'utf-8').trim();
+    return fs.readFileSync(filePath, 'utf-8').trim();
   } catch (err) {
     throw new MetricsError(`Failed to read ${filePath}: ${err.message}`);
   }
@@ -82,13 +82,21 @@ function cpuTemperatureCelsius() {
   return Math.round((parseInt(raw, 10) / 1000.0) * 100) / 100;
 }
 
-exports.system_metrics = () => {
-  return {
-    cpu: {
-      cpuTemperatureCelsius: cpuTemperatureCelsius(),
-    },
-    memory: memoryInfo(),
-    load: loadAverage(),
-    uptime: uptimeSeconds(),
-  };
-}
+const system_metrics = (req, res) => {
+  try {
+    return res.json({
+      timestamp_epoch: Math.floor(Date.now() / 1000),
+      cpu_temperature_celsius: cpuTemperatureCelsius(),
+      memory: memoryInfo(),
+      load_average: loadAverage(),
+      uptime_seconds: uptimeSeconds(),
+    });
+  } catch (err) {
+    return res.status(500).json({
+      error: 'failed_to_collect_metrics',
+      details: err.message,
+    });
+  }
+};
+
+export { system_metrics };

@@ -1,7 +1,7 @@
-const jwt = require('jsonwebtoken');
-const { jwtSecret, originURL } = require('../../auth/config.js');
+import jwt from 'jsonwebtoken';
+import { jwtSecret, jwtExpiration, hostURL, proxyHeader } from '../utils/config.js';
 
-exports.verifyToken = (req, res, next) => {
+export const verifyToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   if (!authHeader) {
     return res.status(401).json({ error: 'missing_token' });
@@ -28,9 +28,9 @@ exports.verifyToken = (req, res, next) => {
   }
 };
 
-exports.issueToken = (req, res) => {
+export const issueToken = (req, res) => {
   const origin = req.headers['origin'];
-  if (origin !== originURL) {
+  if (origin !== hostURL) {
     return res.status(403).json({ error: 'invalid_origin' });
   }
   
@@ -39,6 +39,14 @@ exports.issueToken = (req, res) => {
     return res.status(400).json({ error: 'permissions_required' });
   }
 
-  const token = jwt.sign({ permissions }, jwtSecret, { expiresIn: '30d' });
+  const token = jwt.sign({ permissions }, jwtSecret, { expiresIn: jwtExpiration });
   res.status(200).json({ token });
+};
+
+export const checkProxyHeader = (req, res, next) => {
+  const proxyHeaderValue = req.headers[proxyHeader];
+  if (proxyHeaderValue !== 'true') {
+    return res.status(403).json({ error: 'invalid_proxy_header' });
+  }
+  next();
 };
